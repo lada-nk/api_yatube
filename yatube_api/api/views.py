@@ -1,75 +1,40 @@
-from rest_framework import status, viewsets
-from rest_framework.exceptions import PermissionDenied
-from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+from rest_framework import viewsets
 
-from posts.models import Post, User, Comment, Group
+from posts.models import Post, Group
 from .serializers import (
-    PostSerializer, UserSerializer, CommentSerializer, GroupSerializer)
+    PostSerializer, CommentSerializer, GroupSerializer)
+from .permissions import IsAuthorOrReadOnlyPermission
 
 
 class PostViewSet(viewsets.ModelViewSet):
     queryset = Post.objects.all()
     serializer_class = PostSerializer
+    permission_classes = (IsAuthorOrReadOnlyPermission,)
 
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
 
-    def perform_update(self, serializer):
-        if serializer.instance.author != self.request.user:
-            raise PermissionDenied('Изменение чужого поста запрещено!')
-        super(PostViewSet, self).perform_update(serializer)
-
-    def perform_destroy(self, instance):
-        if instance.author != self.request.user:
-            raise PermissionDenied('Удаление чужого поста запрещено!')
-        instance.delete()
-
-
-class UserViewSet(viewsets.ReadOnlyModelViewSet):
-    queryset = User.objects.all()
-    serializer_class = UserSerializer
-
 
 class CommentViewSet(viewsets.ModelViewSet):
-    queryset = Comment.objects.all()
     serializer_class = CommentSerializer
+    permission_classes = (IsAuthorOrReadOnlyPermission,)
+
+    def get_post(self, **kwargs):
+        """Получаем пост с нужным id."""
+
+        post = get_object_or_404(
+            Post, pk=self.kwargs.get('post_id')
+        )
+        return post
 
     def get_queryset(self):
-        return Comment.objects.filter(post=self.kwargs.get('post_id'))
+        return self.get_post().comments.all()
 
     def perform_create(self, serializer):
-        post = Post.objects.get(pk=self.kwargs.get('post_id'))
-        serializer.save(post=post, author=self.request.user)
-
-    def perform_update(self, serializer):
-        if serializer.instance.author != self.request.user:
-            raise PermissionDenied('Изменение чужого комментария запрещено!')
-        super(CommentViewSet, self).perform_update(serializer)
-
-    def perform_destroy(self, instance):
-        if instance.author != self.request.user:
-            raise PermissionDenied('Удаление чужого комментария запрещено!')
-        instance.delete()
+        serializer.save(post=self.get_post(), author=self.request.user)
 
 
-class GroupViewSet(viewsets.ModelViewSet):
+class GroupViewSet(viewsets.ReadOnlyModelViewSet):
     queryset = Group.objects.all()
     serializer_class = GroupSerializer
-
-    def create(self, request, *args, **kwargs):
-        return Response(
-            {'detail': 'Создание группы запрещено!'},
-            status=status.HTTP_405_METHOD_NOT_ALLOWED
-        )
-
-    def update(self, request, *args, **kwargs):
-        return Response(
-            {'detail': 'Изменение группы запрещено!'},
-            status=status.HTTP_405_METHOD_NOT_ALLOWED
-        )
-
-    def destroy(self, request, *args, **kwargs):
-        return Response(
-            {'detail': 'Удаление группы запрещено!'},
-            status=status.HTTP_405_METHOD_NOT_ALLOWED
-        )
